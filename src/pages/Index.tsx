@@ -98,6 +98,7 @@ export default function Index() {
           <TabsList className="w-full">
             <TabsTrigger value="passes" className="flex-1">Пропуск</TabsTrigger>
             <TabsTrigger value="profile" className="flex-1">Профиль</TabsTrigger>
+            {user.isAdmin && <TabsTrigger value="admin" className="flex-1">Админ</TabsTrigger>}
           </TabsList>
 
           {/* ВКЛАДКА ПРОПУСК */}
@@ -158,17 +159,18 @@ export default function Index() {
               <Icon name="LogOut" size={16} className="mr-2" />
               Выйти из аккаунта
             </Button>
-
-            {user.isAdmin && (
-              <div className="pt-2">
-                <AdminPanel
-                  currentUser={user}
-                  onToast={notify}
-                  onCoinsChange={(coins) => setUser(u => u ? { ...u, coins } : u)}
-                />
-              </div>
-            )}
           </TabsContent>
+
+          {/* ВКЛАДКА АДМИН */}
+          {user.isAdmin && (
+            <TabsContent value="admin" className="mt-5 animate-fade-in">
+              <AdminPanel
+                currentUser={user}
+                onToast={notify}
+                onCoinsChange={(coins) => setUser(u => u ? { ...u, coins } : u)}
+              />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 

@@ -225,11 +225,15 @@ export default function AdminPanel({ currentUser, onToast, onCoinsChange }: Prop
             <div key={u.username} className="rounded-xl border p-3 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-medium truncate">@{u.username}</p>
-                <p className="text-xs text-muted-foreground">{u.coins} 🍪{u.isAdmin ? ' · админ' : ''}</p>
+                <p className="text-xs text-muted-foreground">
+                  {u.coins} 🍪
+                  {u.isAdmin && u.adminGrantedBy === null && ' · главный админ'}
+                  {u.isAdmin && u.adminGrantedBy !== null && ` · админ (выдал @${u.adminGrantedBy})`}
+                </p>
               </div>
               {isOwnerAdmin && u.username !== currentUser.username && (
                 <Button size="sm" variant="outline" onClick={() => toggleAdmin(u)}>
-                  {u.isAdmin ? 'Забрать админку' : 'Выдать админку'}
+                  {u.isAdmin ? 'Забрать' : 'Выдать админку'}
                 </Button>
               )}
             </div>
