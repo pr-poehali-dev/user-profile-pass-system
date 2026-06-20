@@ -1,50 +1,47 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import {
-  db,
-  Pass,
-  Privilege,
-  PRIVILEGES,
-  PRIVILEGE_COLORS,
-  Product,
-  durationLabel,
-  uid,
-  User,
-} from '@/lib/store';
+import { api, Pass, Product, UserInfo } from '@/lib/api';
+import { PRIVILEGE_COLORS } from '@/lib/store';
 import Icon from '@/components/ui/icon';
 
-interface AdminPanelProps {
-  currentUser: User;
-  refresh: () => void;
-  onToast: (msg: string) => void;
-}
-
+type Privilege = 'Client' | 'Helper' | 'Admator' | 'Developer';
 type Unit = 'minutes' | 'hours' | 'days' | 'infinite';
+const PRIVILEGES: Privilege[] = ['Client', 'Helper', 'Admator', 'Developer'];
 
-function computeExpiry(privilege: Privilege, unit: Unit, amount: number): number | null {
-  if (privilege === 'Developer' || unit === 'infinite') return null;
-  const ms =
-    unit === 'minutes' ? amount * 60000 : unit === 'hours' ? amount * 3600000 : amount * 86400000;
+function computeExpiry(priv: Privilege, unit: Unit, amount: number): number | null {
+  if (priv === 'Developer' || unit === 'infinite') return null;
+  const ms = unit === 'minutes' ? amount * 60000 : unit === 'hours' ? amount * 3600000 : amount * 86400000;
   return Date.now() + ms;
 }
-
-function computeDuration(privilege: Privilege, unit: Unit, amount: number): number | null {
-  if (privilege === 'Developer' || unit === 'infinite') return null;
+function computeDuration(priv: Privilege, unit: Unit, amount: number): number | null {
+  if (priv === 'Developer' || unit === 'infinite') return null;
   return unit === 'minutes' ? amount * 60000 : unit === 'hours' ? amount * 3600000 : amount * 86400000;
 }
 
-export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanelProps) {
-  const isOwnerAdmin = currentUser.adminGrantedBy === null; // может управлять админками
+interface Props {
+  currentUser: UserInfo;
+  onToast: (msg: string) => void;
+  onCoinsChange: (coins: number) => void;
+}
+
+export default function AdminPanel({ currentUser, onToast, onCoinsChange }: Props) {
+  const isOwnerAdmin = currentUser.adminGrantedBy === null;
+
+  const [passes, setPasses] = useState<Pass[]>([]);
+  const [users, setUsers] = useState<UserInfo[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+
+  const loadAll = useCallback(async () => {
+    const [p, u, pr] = await Promise.all([api.passes.list(), api.users.list(), api.products.list()]);
+    setPasses(p); setUsers(u); setProducts(pr);
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   // --- Создание пропуска ---
   const [targetUser, setTargetUser] = useState('');
@@ -53,124 +50,93 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
   const [unit, setUnit] = useState<Unit>('days');
   const [amount, setAmount] = useState(1);
 
-  const createPass = () => {
+  const createPass = async () => {
     const target = targetUser.trim();
     if (!target || !passTitle.trim()) return onToast('Заполните никнейм и название');
-    const users = db.getUsers();
-    if (!users.some((u) => u.username === target)) return onToast('Такой игрок не найден');
-
-    const pass: Pass = {
-      id: uid(),
-      owner: target,
-      title: passTitle.trim(),
-      privilege,
-      createdAt: Date.now(),
-      expiresAt: computeExpiry(privilege, unit, amount),
-    };
-    db.setPasses([...db.getPasses(), pass]);
-    setPassTitle('');
-    setTargetUser('');
-    onToast('Пропуск создан');
-    refresh();
+    try {
+      await api.passes.create(target, passTitle.trim(), privilege, computeExpiry(privilege, unit, amount));
+      setPassTitle(''); setTargetUser('');
+      onToast('Пропуск создан');
+      loadAll();
+    } catch (e: unknown) { onToast(e instanceof Error ? e.message : 'Ошибка'); }
   };
 
-  // --- Управление пропусками ---
-  const passes = db.getPasses();
+  // --- Редактирование пропуска ---
   const [editId, setEditId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editPriv, setEditPriv] = useState<Privilege>('Client');
 
-  const startEdit = (p: Pass) => {
-    setEditId(p.id);
-    setEditTitle(p.title);
-    setEditPriv(p.privilege);
-  };
-  const saveEdit = () => {
-    db.setPasses(
-      passes.map((p) =>
-        p.id === editId
-          ? {
-              ...p,
-              title: editTitle,
-              privilege: editPriv,
-              expiresAt: editPriv === 'Developer' ? null : p.expiresAt,
-            }
-          : p,
-      ),
-    );
-    setEditId(null);
-    onToast('Пропуск изменён');
-    refresh();
-  };
-  const deletePass = (id: string) => {
-    db.setPasses(passes.filter((p) => p.id !== id));
-    onToast('Пропуск удалён');
-    refresh();
+  const saveEdit = async () => {
+    const p = passes.find(x => x.id === editId);
+    if (!p) return;
+    try {
+      await api.passes.update(p.id, editTitle, editPriv, editPriv === 'Developer' ? null : p.expiresAt);
+      setEditId(null);
+      onToast('Пропуск изменён');
+      loadAll();
+    } catch (e: unknown) { onToast(e instanceof Error ? e.message : 'Ошибка'); }
   };
 
-  // --- Игроки и поиск ---
+  const deletePass = async (id: string) => {
+    try {
+      await api.passes.delete(id);
+      onToast('Пропуск удалён');
+      loadAll();
+    } catch (e: unknown) { onToast(e instanceof Error ? e.message : 'Ошибка'); }
+  };
+
+  // --- Игроки ---
   const [search, setSearch] = useState('');
-  const users = db.getUsers();
-  const filteredUsers = users.filter((u) =>
-    u.username.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = users.filter(u => u.username.toLowerCase().includes(search.toLowerCase()));
+
+  const toggleAdmin = async (u: UserInfo) => {
+    try {
+      await api.users.setAdmin(u.username, !u.isAdmin, currentUser.username);
+      onToast(u.isAdmin ? 'Админка забрана' : 'Админка выдана');
+      loadAll();
+    } catch (e: unknown) { onToast(e instanceof Error ? e.message : 'Ошибка'); }
+  };
 
   // --- Валюта ---
   const [coinUser, setCoinUser] = useState('');
   const [coinAmount, setCoinAmount] = useState(10);
-  const changeCoins = (delta: number) => {
-    const target = coinUser.trim();
-    if (!target) return onToast('Введите никнейм');
-    const list = db.getUsers();
-    const idx = list.findIndex((u) => u.username === target);
-    if (idx === -1) return onToast('Игрок не найден');
-    list[idx] = { ...list[idx], coins: Math.max(0, list[idx].coins + delta) };
-    db.setUsers(list);
-    onToast(delta > 0 ? `Выдано ${coinAmount} 🍪` : `Забрано ${coinAmount} 🍪`);
-    refresh();
-  };
 
-  // --- Управление админками ---
-  const grantAdmin = (username: string, grant: boolean) => {
-    const list = db.getUsers();
-    const idx = list.findIndex((u) => u.username === username);
-    if (idx === -1) return;
-    list[idx] = {
-      ...list[idx],
-      isAdmin: grant,
-      adminGrantedBy: grant ? currentUser.username : null,
-    };
-    db.setUsers(list);
-    onToast(grant ? 'Админка выдана' : 'Админка забрана');
-    refresh();
+  const changeCoins = async (delta: number) => {
+    if (!coinUser.trim()) return onToast('Введите никнейм');
+    try {
+      await api.users.changeCoins(coinUser.trim(), delta);
+      onToast(delta > 0 ? `Выдано ${Math.abs(delta)} 🍪` : `Забрано ${Math.abs(delta)} 🍪`);
+      if (coinUser.trim() === currentUser.username) {
+        const me = await api.users.list().then(list => list.find(u => u.username === currentUser.username));
+        if (me) onCoinsChange(me.coins);
+      }
+      loadAll();
+    } catch (e: unknown) { onToast(e instanceof Error ? e.message : 'Ошибка'); }
   };
 
   // --- Товары ---
-  const products = db.getProducts();
   const [prodTitle, setProdTitle] = useState('');
   const [prodPriv, setProdPriv] = useState<Privilege>('Client');
   const [prodUnit, setProdUnit] = useState<Unit>('days');
   const [prodAmount, setProdAmount] = useState(1);
   const [prodPrice, setProdPrice] = useState(50);
 
-  const createProduct = () => {
+  const createProduct = async () => {
     if (!prodTitle.trim()) return onToast('Введите название товара');
-    const product: Product = {
-      id: uid(),
-      title: prodTitle.trim(),
-      privilege: prodPriv,
-      price: prodPrice,
-      durationMs: computeDuration(prodPriv, prodUnit, prodAmount),
-    };
-    db.setProducts([...products, product]);
-    setProdTitle('');
-    onToast('Товар добавлен в магазин');
-    refresh();
+    try {
+      await api.products.create(prodTitle.trim(), prodPriv, prodPrice, computeDuration(prodPriv, prodUnit, prodAmount));
+      setProdTitle('');
+      onToast('Товар добавлен');
+      loadAll();
+    } catch (e: unknown) { onToast(e instanceof Error ? e.message : 'Ошибка'); }
   };
-  const deleteProduct = (id: string) => {
-    db.setProducts(products.filter((p) => p.id !== id));
-    onToast('Товар удалён навсегда');
-    refresh();
+
+  const deleteProduct = async (id: string) => {
+    try {
+      await api.products.delete(id);
+      onToast('Товар удалён навсегда');
+      loadAll();
+    } catch (e: unknown) { onToast(e instanceof Error ? e.message : 'Ошибка'); }
   };
 
   return (
@@ -197,9 +163,7 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
             <div className="grid grid-cols-2 gap-2">
               <Select value={privilege} onValueChange={(v) => setPrivilege(v as Privilege)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PRIVILEGES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{PRIVILEGES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
               <Select value={unit} onValueChange={(v) => setUnit(v as Unit)} disabled={privilege === 'Developer'}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -212,12 +176,10 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
               </Select>
             </div>
             {privilege !== 'Developer' && unit !== 'infinite' && (
-              <Input type="number" min={1} value={amount} onChange={(e) => setAmount(Number(e.target.value))} placeholder="Количество" />
+              <Input type="number" min={1} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
             )}
-            {privilege === 'Developer' && (
-              <p className="text-xs text-muted-foreground">Developer-пропуск всегда бесконечный</p>
-            )}
-            <Button className="w-full" onClick={createPass}>Создать пропуск</Button>
+            {privilege === 'Developer' && <p className="text-xs text-muted-foreground">Developer — всегда бесконечный</p>}
+            <Button className="w-full" onClick={createPass}>Создать</Button>
           </div>
 
           <div className="space-y-2">
@@ -230,9 +192,7 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
                     <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
                     <Select value={editPriv} onValueChange={(v) => setEditPriv(v as Privilege)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {PRIVILEGES.map((pr) => <SelectItem key={pr} value={pr}>{pr}</SelectItem>)}
-                      </SelectContent>
+                      <SelectContent>{PRIVILEGES.map(pr => <SelectItem key={pr} value={pr}>{pr}</SelectItem>)}</SelectContent>
                     </Select>
                     <div className="flex gap-2">
                       <Button size="sm" onClick={saveEdit}>Сохранить</Button>
@@ -243,13 +203,11 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="font-medium truncate">{p.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        @{p.owner} · {durationLabel(p.expiresAt)}
-                      </p>
+                      <p className="text-xs text-muted-foreground">@{p.owner} · {p.expiresAt === null ? 'Бесконечно' : new Date(p.expiresAt).toLocaleDateString('ru')}</p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`text-xs px-2 py-0.5 rounded-full border ${PRIVILEGE_COLORS[p.privilege]}`}>{p.privilege}</span>
-                      <button className="p-1.5 hover:bg-muted rounded-lg" onClick={() => startEdit(p)}><Icon name="Pencil" size={15} /></button>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${PRIVILEGE_COLORS[p.privilege as keyof typeof PRIVILEGE_COLORS]}`}>{p.privilege}</span>
+                      <button className="p-1.5 hover:bg-muted rounded-lg" onClick={() => { setEditId(p.id); setEditTitle(p.title); setEditPriv(p.privilege as Privilege); }}><Icon name="Pencil" size={15} /></button>
                       <button className="p-1.5 hover:bg-muted rounded-lg text-destructive" onClick={() => deletePass(p.id)}><Icon name="Trash2" size={15} /></button>
                     </div>
                   </div>
@@ -262,19 +220,17 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
         {/* ИГРОКИ */}
         <TabsContent value="players" className="space-y-3 mt-5">
           <Input placeholder="Поиск по никнейму..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <p className="text-sm text-muted-foreground">Всего игроков: {users.length}</p>
-          {filteredUsers.map((u) => (
+          <p className="text-sm text-muted-foreground">Всего: {users.length}</p>
+          {filtered.map((u) => (
             <div key={u.username} className="rounded-xl border p-3 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-medium truncate">@{u.username}</p>
                 <p className="text-xs text-muted-foreground">{u.coins} 🍪{u.isAdmin ? ' · админ' : ''}</p>
               </div>
               {isOwnerAdmin && u.username !== currentUser.username && (
-                u.isAdmin ? (
-                  <Button size="sm" variant="outline" onClick={() => grantAdmin(u.username, false)}>Забрать админку</Button>
-                ) : (
-                  <Button size="sm" variant="outline" onClick={() => grantAdmin(u.username, true)}>Выдать админку</Button>
-                )
+                <Button size="sm" variant="outline" onClick={() => toggleAdmin(u)}>
+                  {u.isAdmin ? 'Забрать админку' : 'Выдать админку'}
+                </Button>
               )}
             </div>
           ))}
@@ -297,13 +253,11 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
         <TabsContent value="shop" className="space-y-6 mt-5">
           <div className="rounded-xl border p-4 space-y-3">
             <p className="font-semibold text-sm">Создать товар</p>
-            <Input placeholder="Название (пропуск)" value={prodTitle} onChange={(e) => setProdTitle(e.target.value)} />
+            <Input placeholder="Название пропуска" value={prodTitle} onChange={(e) => setProdTitle(e.target.value)} />
             <div className="grid grid-cols-2 gap-2">
               <Select value={prodPriv} onValueChange={(v) => setProdPriv(v as Privilege)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PRIVILEGES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{PRIVILEGES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
               <Select value={prodUnit} onValueChange={(v) => setProdUnit(v as Unit)} disabled={prodPriv === 'Developer'}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -319,7 +273,7 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
               <Input type="number" min={1} value={prodAmount} onChange={(e) => setProdAmount(Number(e.target.value))} placeholder="Длительность" />
             )}
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Цена 🍪</span>
+              <span className="text-sm text-muted-foreground shrink-0">Цена 🍪</span>
               <Input type="number" min={1} value={prodPrice} onChange={(e) => setProdPrice(Number(e.target.value))} />
             </div>
             <Button className="w-full" onClick={createProduct}>Добавить товар</Button>
@@ -332,12 +286,10 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
               <div key={p.id} className="rounded-xl border p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="font-medium truncate">{p.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {p.price} 🍪 · {p.durationMs === null ? 'Бесконечно' : durationLabel(Date.now() + p.durationMs)}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{p.price} 🍪 · {p.durationMs === null ? 'Бесконечно' : `${Math.round(p.durationMs / 86400000)}д`}</p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className={`text-xs px-2 py-0.5 rounded-full border ${PRIVILEGE_COLORS[p.privilege]}`}>{p.privilege}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${PRIVILEGE_COLORS[p.privilege as keyof typeof PRIVILEGE_COLORS]}`}>{p.privilege}</span>
                   <button className="p-1.5 hover:bg-muted rounded-lg text-destructive" onClick={() => deleteProduct(p.id)}><Icon name="Trash2" size={15} /></button>
                 </div>
               </div>

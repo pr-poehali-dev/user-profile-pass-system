@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get all passes",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Create pass",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "create", "owner": "TestUser999", "title": "Test Pass", "privilege": "Client", "expiresAt": null},
+      "expectedStatus": 200,
+      "expectedBody": {"owner": "TestUser999"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

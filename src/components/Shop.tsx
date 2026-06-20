@@ -5,47 +5,37 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import {
-  db,
-  Pass,
-  PRIVILEGE_COLORS,
-  Product,
-  durationLabel,
-  uid,
-  User,
-} from '@/lib/store';
+import { api, Product, UserInfo } from '@/lib/api';
+import { PRIVILEGE_COLORS } from '@/lib/store';
 
 interface ShopProps {
   open: boolean;
   onClose: () => void;
-  currentUser: User;
-  refresh: () => void;
+  currentUser: UserInfo;
+  onUpdate: (coins: number) => void;
   onToast: (msg: string) => void;
 }
 
-export default function Shop({ open, onClose, currentUser, refresh, onToast }: ShopProps) {
-  const products = db.getProducts();
+export default function Shop({ open, onClose, currentUser, onUpdate, onToast }: ShopProps) {
+  const [products, setProducts] = React.useState<Product[]>([]);
+  const [loading, setLoading] = React.useState(false);
 
-  const buy = (product: Product) => {
-    const users = db.getUsers();
-    const idx = users.findIndex((u) => u.username === currentUser.username);
-    if (idx === -1) return;
-    if (users[idx].coins < product.price) return onToast('Недостаточно 🍪');
+  React.useEffect(() => {
+    if (open) api.products.list().then(setProducts).catch(() => {});
+  }, [open]);
 
-    users[idx] = { ...users[idx], coins: users[idx].coins - product.price };
-    db.setUsers(users);
-
-    const pass: Pass = {
-      id: uid(),
-      owner: currentUser.username,
-      title: product.title,
-      privilege: product.privilege,
-      createdAt: Date.now(),
-      expiresAt: product.durationMs === null ? null : Date.now() + product.durationMs,
-    };
-    db.setPasses([...db.getPasses(), pass]);
-    onToast(`Куплено: ${product.title}`);
-    refresh();
+  const buy = async (product: Product) => {
+    if (currentUser.coins < product.price) return onToast('Недостаточно 🍪');
+    setLoading(true);
+    try {
+      const res = await api.users.buy(currentUser.username, product.id);
+      onUpdate(res.coins);
+      onToast(`Куплено: ${product.title}`);
+    } catch (e: unknown) {
+      onToast(e instanceof Error ? e.message : 'Ошибка покупки');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -69,11 +59,11 @@ export default function Shop({ open, onClose, currentUser, refresh, onToast }: S
               <div className="min-w-0">
                 <p className="font-medium truncate">{p.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  <span className={`inline-block px-2 py-0.5 rounded-full border mr-1.5 ${PRIVILEGE_COLORS[p.privilege]}`}>{p.privilege}</span>
-                  {p.durationMs === null ? 'Бесконечно' : durationLabel(Date.now() + p.durationMs)}
+                  <span className={`inline-block px-2 py-0.5 rounded-full border mr-1.5 ${PRIVILEGE_COLORS[p.privilege as keyof typeof PRIVILEGE_COLORS]}`}>{p.privilege}</span>
+                  {p.durationMs === null ? 'Бесконечно' : `${Math.round(p.durationMs / 86400000)}д`}
                 </p>
               </div>
-              <Button size="sm" onClick={() => buy(p)} disabled={currentUser.coins < p.price}>
+              <Button size="sm" onClick={() => buy(p)} disabled={currentUser.coins < p.price || loading}>
                 {p.price} 🍪
               </Button>
             </div>
@@ -83,3 +73,5 @@ export default function Shop({ open, onClose, currentUser, refresh, onToast }: S
     </Dialog>
   );
 }
+
+import React from 'react';

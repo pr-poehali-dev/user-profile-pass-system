@@ -1,0 +1,35 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Register new user",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "register", "username": "TestUser999", "password": "test123"},
+      "expectedStatus": 200,
+      "expectedBody": {"username": "TestUser999"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login with correct credentials",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "login", "username": "TestUser999", "password": "test123"},
+      "expectedStatus": 200,
+      "expectedBody": {"username": "TestUser999"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login with wrong password",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "login", "username": "TestUser999", "password": "wrong"},
+      "expectedStatus": 401
+    }
+  ]
+}

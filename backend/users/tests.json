@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get all users",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Change coins",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "coins", "username": "TestUser999", "delta": 10},
+      "expectedStatus": 200,
+      "expectedBody": {"coins": 10},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

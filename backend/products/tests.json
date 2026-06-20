@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get all products",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Create product",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "create", "title": "Test Product", "privilege": "Client", "price": 50, "durationMs": null},
+      "expectedStatus": 200,
+      "expectedBody": {"title": "Test Product"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
