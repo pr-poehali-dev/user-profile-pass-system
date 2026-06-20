@@ -56,7 +56,6 @@ export default function AdminPanel({ currentUser, refresh, onToast }: AdminPanel
   const createPass = () => {
     const target = targetUser.trim();
     if (!target || !passTitle.trim()) return onToast('Заполните никнейм и название');
-    if (target === currentUser.username) return onToast('Нельзя создать пропуск самому себе');
     const users = db.getUsers();
     if (!users.some((u) => u.username === target)) return onToast('Такой игрок не найден');
 
